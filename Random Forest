@@ -12,10 +12,12 @@ library(Metrics)
 library(MASS)
 library(pls)
 
+################### reading data file.csv
 data = read.csv("SubFPC.csv", header = TRUE) 
+
+################### dividing data
 Pos = subset(data, Activity == 'active')
 Neg = subset(data, Activity == 'inactive')
-
 nPos = nrow(Pos)
 nNeg = nrow(Neg)
 
@@ -30,32 +32,34 @@ SPECts  <- matrix(nrow = m, ncol = 1)
 MCCts  <- matrix(nrow = m, ncol = 1)
 error  <- matrix(nrow = 10, ncol = 1)
 
+###################  Dividing Training and Testing sets on positive and negative classes
 for (i in 1:m){
-#######  Dividing Training and Testing sets on positive and negative classes
+sample <- c(sample(1:nrow(Neg),32)) ##### data balacing
+BNeg <- Neg[sample,]
+nBNeg = nrow(BNeg)
 sample1 <- c(sample(1:nPos,24))
-sample2 <- c(sample(1:nNeg,62 ))
+sample2 <- c(sample(1:nBNeg,24 ))
   train1  <- Pos[sample1,] ####Positive set for training
-  train2  <- Neg[sample2,] ####Negative set for training
+  train2  <- BNeg[sample2,] ####Negative set for training
   test1 <-   Pos[-sample1,]    ####Positive set for testing
-  test2 <-   Neg[-sample2,]    ####Negative set for testing 
+  test2 <-   BNeg[-sample2,]    ####Negative set for testing 
   internal <- rbind(train1,train2) ####combining for internal set
   external <- rbind(test1,test2)    ####combining for external set
 
-######### Optimized parameter
+################### Optimized parameter
 model <- tuneRF(internal[,-ncol(internal)], internal[,ncol(internal)], stepFactor=1.5)
 index <- c(100,200,300,400,500,600,700,800,900,1000)
-for(p in 1:10){
+for(p in 1:length(index)){
 ntree <- randomForest(Activity ~ ., internal, ntree= index[p],mtry = model[order(model[,2]),][1],orm.votes=TRUE,keep.forest=TRUE, importance=TRUE)
 error[p,] <- sum(ntree $ confusion[,3])
 }
 ntr = cbind(c(1:10),error)
 ntr2 = ntr[order(ntr[,2]),][1]
 
-######Loop for 10-fold CV
+################### Loop for 10-fold CV or Leave-one out
 k <- 10;
 Resultcv <- 0;
 folds <- cvsegments(nrow(internal), k);
-
 for (fold in 1:k){
   currentFold <- folds[fold][[1]];
   RF = randomForest(Activity ~ ., internal[-currentFold,], ntree= index[ntr2] ,mtry = model[order(model[,2]),][1],orm.votes=TRUE,keep.forest=TRUE, importance=TRUE) ## Building RF model
@@ -89,4 +93,4 @@ data = Resultext
 }
 result = data.frame (ACCtr,SENStr,SPECtr,MCCtr,ACCts,SENSts,SPECts,MCCts)
 
-write.csv(result, "Result-original.csv", row.names=TRUE, na="")
+write.csv(result, "RF-results-balancing.csv", row.names=TRUE, na="")
