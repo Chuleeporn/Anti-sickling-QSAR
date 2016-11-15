@@ -1,3 +1,4 @@
+#######Load package
 library(RWeka)
 library(caret)
 library(randomForest)
@@ -12,29 +13,38 @@ library(Metrics)
 library(MASS)
 library(pls)
 
-################### reading data file.csv
 data = read.csv("SubFPC.csv", header = TRUE) 
-
-################### dividing data
 Pos = subset(data, Activity == 'active')
 Neg = subset(data, Activity == 'inactive')
+
 nPos = nrow(Pos)
 nNeg = nrow(Neg)
 
 m= 100
-ACCtr  <- matrix(nrow = m, ncol = 1)
-SENStr  <- matrix(nrow = m, ncol = 1)
-SPECtr  <- matrix(nrow = m, ncol = 1)
-MCCtr  <- matrix(nrow = m, ncol = 1)
+ACCftr  <- matrix(nrow = m, ncol = 1)
+SENSftr  <- matrix(nrow = m, ncol = 1)
+SPECftr  <- matrix(nrow = m, ncol = 1)
+MCCftr  <- matrix(nrow = m, ncol = 1)
+
+ACC10fold  <- matrix(nrow = m, ncol = 1)
+SENS10fold  <- matrix(nrow = m, ncol = 1)
+SPEC10fold  <- matrix(nrow = m, ncol = 1)
+MCC10fold  <- matrix(nrow = m, ncol = 1)
+
+ACCLOOCV  <- matrix(nrow = m, ncol = 1)
+SENSLOOCV <- matrix(nrow = m, ncol = 1)
+SPECLOOCV  <- matrix(nrow = m, ncol = 1)
+MCCLOOCV  <- matrix(nrow = m, ncol = 1)
+
 ACCts  <- matrix(nrow = m, ncol = 1)
 SENSts  <- matrix(nrow = m, ncol = 1)
 SPECts  <- matrix(nrow = m, ncol = 1)
 MCCts  <- matrix(nrow = m, ncol = 1)
 error  <- matrix(nrow = 10, ncol = 1)
 
-###################  Dividing Training and Testing sets on positive and negative classes
 for (i in 1:m){
-sample <- c(sample(1:nrow(Neg),32)) ##### data balacing
+#######  Dividing Training and Testing sets on positive and negative classes
+sample <- c(sample(1:nrow(Neg) ,32))
 BNeg <- Neg[sample,]
 nBNeg = nrow(BNeg)
 sample1 <- c(sample(1:nPos,24))
@@ -46,7 +56,7 @@ sample2 <- c(sample(1:nBNeg,24 ))
   internal <- rbind(train1,train2) ####combining for internal set
   external <- rbind(test1,test2)    ####combining for external set
 
-################### Optimized parameter
+######### Optimized parameter
 model <- tuneRF(internal[,-ncol(internal)], internal[,ncol(internal)], stepFactor=1.5)
 index <- c(100,200,300,400,500,600,700,800,900,1000)
 for(p in 1:length(index)){
@@ -56,15 +66,32 @@ error[p,] <- sum(ntree $ confusion[,3])
 ntr = cbind(c(1:10),error)
 ntr2 = ntr[order(ntr[,2]),][1]
 
-################### Loop for 10-fold CV or Leave-one out
+######full-train
+RF = randomForest(Activity ~ ., internal, ntree= index[ntr2],mtry = model[order(model[,2]),][1],orm.votes=TRUE,keep.forest=TRUE, importance=TRUE) ## Building RF on internal with the optimized parameter
+Resultfull = table(internal$Activity, predict(RF, internal))  ###### Prediction on external set
+
+######Loop for 10-fold CV Leave one out
 k <- 10;
 Resultcv <- 0;
 folds <- cvsegments(nrow(internal), k);
+
 for (fold in 1:k){
   currentFold <- folds[fold][[1]];
   RF = randomForest(Activity ~ ., internal[-currentFold,], ntree= index[ntr2] ,mtry = model[order(model[,2]),][1],orm.votes=TRUE,keep.forest=TRUE, importance=TRUE) ## Building RF model
   pred = predict(RF, internal[currentFold,])
-  Resultcv <- Resultcv + table(true=internal[currentFold,]$Activity, pred=pred);   
+  Resultcv <- Resultcv + table(true=internal[currentFold,]$Activity, pred=pred); 
+}
+
+######Leave one out
+k <- 48;
+Resultloocv <- 0;
+folds <- cvsegments(nrow(internal), k);
+
+for (fold in 1:k){
+  currentFold <- folds[fold][[1]];
+  RF = randomForest(Activity ~ ., internal[-currentFold,], ntree= index[ntr2] ,mtry = model[order(model[,2]),][1],orm.votes=TRUE,keep.forest=TRUE, importance=TRUE) ## Building RF model
+  pred = predict(RF, internal[currentFold,])
+  Resultloocv <- Resultloocv + table(true=internal[currentFold,]$Activity, pred=pred);   
 }
 
 ################### External validation
@@ -72,15 +99,33 @@ RF = randomForest(Activity ~ ., internal, ntree= index[ntr2],mtry = model[order(
 Resultext = table(external$Activity, predict(RF, external))  ###### Prediction on external set
 
 ################### Performance report
-data = Resultcv
-	ACCtr[i,] = (data[1]+data[4])/(data[1]+data[2]+data[3]+data[4])*100
-	SENStr[i,]  =  (data[1]/(data[1]+data[2]))*100
-	SPECtr[i,] = (data[4])/(data[3]+data[4])*100
+data = Resultfull
+	ACCftr[i,] = (data[1]+data[4])/(data[1]+data[2]+data[3]+data[4])*100
+	SENSftr[i,]  =  (data[1]/(data[1]+data[2]))*100
+	SPECftr[i,] = (data[4])/(data[3]+data[4])*100
 	MCC1      = (data[1]*data[4]) - (data[2]*data[3])
 	MCC2      =  (data[4]+data[2])*(data[4]+data[3])
 	MCC3      =  (data[1]+data[2])*(data[1]+data[3])
 	MCC4	=  sqrt(MCC2)*sqrt(MCC3)
-	MCCtr[i,]  = MCC1/MCC4
+	MCCftr[i,]  = MCC1/MCC4
+data = Resultcv
+	ACC10fold[i,] = (data[1]+data[4])/(data[1]+data[2]+data[3]+data[4])*100
+	SENS10fold[i,]  =  (data[1]/(data[1]+data[2]))*100
+	SPEC10fold[i,] = (data[4])/(data[3]+data[4])*100
+	MCC1      = (data[1]*data[4]) - (data[2]*data[3])
+	MCC2      =  (data[4]+data[2])*(data[4]+data[3])
+	MCC3      =  (data[1]+data[2])*(data[1]+data[3])
+	MCC4	=  sqrt(MCC2)*sqrt(MCC3)
+	MCC10fold[i,]  = MCC1/MCC4
+data = Resultloocv
+	ACCLOOCV[i,] = (data[1]+data[4])/(data[1]+data[2]+data[3]+data[4])*100
+	SENSLOOCV[i,]  =  (data[1]/(data[1]+data[2]))*100
+	SPECLOOCV[i,] = (data[4])/(data[3]+data[4])*100
+	MCC1      = (data[1]*data[4]) - (data[2]*data[3])
+	MCC2      =  (data[4]+data[2])*(data[4]+data[3])
+	MCC3      =  (data[1]+data[2])*(data[1]+data[3])
+	MCC4	=  sqrt(MCC2)*sqrt(MCC3)
+	MCCLOOCV[i,]  = MCC1/MCC4
 data = Resultext
 	ACCts[i,] = (data[1]+data[4])/(data[1]+data[2]+data[3]+data[4])*100
 	SENSts[i,]  =  (data[1]/(data[1]+data[2]))*100
@@ -91,6 +136,6 @@ data = Resultext
 	MCC4	=  sqrt(MCC2)*sqrt(MCC3)
 	MCCts[i,]  = MCC1/MCC4
 }
-result = data.frame (ACCtr,SENStr,SPECtr,MCCtr,ACCts,SENSts,SPECts,MCCts)
+result = data.frame(ACCftr,SENSftr,SPECftr,MCCftr,ACC10fold,SENS10fold,SPEC10fold,MCC10fold,ACCLOOCV,SENSLOOCV,SPECLOOCV,MCCLOOCV,ACCts,SENSts,SPECts,MCCts)
 
-write.csv(result, "RF-results-balancing.csv", row.names=TRUE, na="")
+write.csv(result, "RF-results-all.csv", row.names=TRUE, na="")
