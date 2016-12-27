@@ -15,7 +15,7 @@ library(MASS)
 library(pls)
 
 #######Read data
-data = read.csv("result_fpt.csv", header = TRUE)
+data = read.csv("descriptors.csv", header = TRUE)
 Pos = subset(data, Activity == 'active')
 Neg = subset(data, Activity == 'inactive')
 
