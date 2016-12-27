@@ -1,0 +1,106 @@
+#######Load package
+library(RWeka)
+library(caret)
+library(randomForest)
+library(kernlab)
+library(e1071)
+library(corrplot)
+library(C50)
+library(nnet)
+library(e1071)
+library(GA)
+library(cvTools) 
+library(Metrics)
+library(MASS)
+library(pls)
+
+#######Read data
+data = read.csv("result_fpt.csv", header = TRUE)
+Pos = subset(data, Activity == 'active')
+Neg = subset(data, Activity == 'inactive')
+
+nPos = nrow(Pos)
+nNeg = nrow(Neg)
+
+m= 100 ## set number of loop
+ACCtr  <- matrix(nrow = m, ncol = 1)
+SENStr  <- matrix(nrow = m, ncol = 1)
+SPECtr  <- matrix(nrow = m, ncol = 1)
+MCCtr  <- matrix(nrow = m, ncol = 1)
+ACC5cv  <- matrix(nrow = m, ncol = 1)
+SENS5cv  <- matrix(nrow = m, ncol = 1)
+SPEC5cv  <- matrix(nrow = m, ncol = 1)
+MCC5cv  <- matrix(nrow = m, ncol = 1)
+ACCts  <- matrix(nrow = m, ncol = 1)
+SENSts  <- matrix(nrow = m, ncol = 1)
+SPECts  <- matrix(nrow = m, ncol = 1)
+MCCts  <- matrix(nrow = m, ncol = 1)
+error  <- matrix(nrow = 10, ncol = 1)
+
+for (i in 1:m){
+#######  Dividing Training and Testing sets on positive and negative classes (sample balancing)
+sample <- c(sample(1:nrow(Neg) ,32))
+BNeg <- Neg[sample,]
+nBNeg = nrow(BNeg)
+sample1 <- c(sample(1:nPos,24))
+sample2 <- c(sample(1:nBNeg,24 ))
+  train1  <- Pos[sample1,] ####Positive set for training
+  train2  <- BNeg[sample2,] ####Negative set for training
+  test1 <-   Pos[-sample1,]    ####Positive set for testing
+  test2 <-   BNeg[-sample2,]    ####Negative set for testing 
+  internal <- rbind(train1,train2) ####combining for internal set
+  external <- rbind(test1,test2)    ####combining for external set
+
+######### Optimized parameter
+mygrid <- expand.grid(.decay=c(0.1:0.5), .size=c(1:10))
+nnetfit <- train(Activity ~ ., data=internal, method="nnet", maxit=500, tuneGrid=mygrid, trace=F) 
+
+################### Internal validation
+RF = nnet(Activity ~ ., data = internal, size = as.numeric(nnetfit$ bestTune[1]), decay = as.numeric(nnetfit$ bestTune[2]), maxit = 1000)
+Resultfull = table(internal$Activity, predict(RF, internal, type = "class"))  ###### Prediction on external set
+
+######Loop for 5-fold CV
+k <- 5;
+Result5cv <- 0;
+folds <- cvsegments(nrow(internal), k);
+for (fold in 1:k){
+  currentFold <- folds[fold][[1]];
+  RF = nnet(Activity ~ ., data = internal[-currentFold,], size = as.numeric(nnetfit$ bestTune[1]),decay = as.numeric(nnetfit$ bestTune[2]), maxit = 500)
+  pred = predict(RF, internal[currentFold,],type = "class")
+  pred[is.na(pred)] <- 0
+  Result5cv <- Result5cv + table(true=internal[currentFold,]$Activity, pred=pred); 
+}
+
+################### External validation
+RF = nnet(Activity ~ ., data = internal, size = as.numeric(nnetfit$ bestTune[1]), decay = as.numeric(nnetfit$ bestTune[2]), maxit = 500)
+Resultext = table(external$Activity, predict(RF, external, type = "class"))  ###### Prediction on external set
+
+################### Performance report
+data = Resultfull
+	ACCtr[i,] = (data[1]+data[4])/(data[1]+data[2]+data[3]+data[4])*100
+	SENStr[i,]  =  (data[1]/(data[1]+data[2]))*100
+	SPECtr[i,] = (data[4])/(data[3]+data[4])*100
+	MCC1      = (data[1]*data[4]) - (data[2]*data[3])
+	MCC2      =  (data[4]+data[2])*(data[4]+data[3])*(data[1]+data[2])*(data[1]+data[3])	
+	MCC3	=  sqrt(MCC2)
+	MCCtr[i,]  = MCC1/MCC3
+data = Result5cv
+	ACC5cv[i,] = (data[1]+data[4])/(data[1]+data[2]+data[3]+data[4])*100
+	SENS5cv[i,]  =  (data[1]/(data[1]+data[2]))*100
+	SPEC5cv[i,] = (data[4])/(data[3]+data[4])*100
+	MCC1      = (data[1]*data[4]) - (data[2]*data[3])
+	MCC2      =  (data[4]+data[2])*(data[4]+data[3])*(data[1]+data[2])*(data[1]+data[3])	
+	MCC3	=  sqrt(MCC2)
+	MCC5cv[i,]  = MCC1/MCC3
+data = Resultext
+	ACCts[i,] = (data[1]+data[4])/(data[1]+data[2]+data[3]+data[4])*100
+	SENSts[i,]  =  (data[1]/(data[1]+data[2]))*100
+	SPECts[i,] = (data[4])/(data[3]+data[4])*100
+	MCC1      = (data[1]*data[4]) - (data[2]*data[3])
+	MCC2      =  (data[4]+data[2])*(data[4]+data[3])*(data[1]+data[2])*(data[1]+data[3])	
+	MCC3	=  sqrt(MCC2)
+	MCCts[i,]  = MCC1/MCC3
+}
+result = data.frame(ACCtr,SENStr,SPECtr,MCCtr,ACC5cv,SENS5cv,SPEC5cv,MCC5cv,ACCts,SENSts,SPECts,MCCts)
+
+write.csv(result, "ANN_balancing.csv", row.names=TRUE, na="")
