@@ -13,7 +13,8 @@ library(Metrics)
 library(MASS)
 library(pls)
 
-data = read.csv("SubFPC.csv", header = TRUE) 
+### data
+data = read.csv("Descriptors.csv", header = TRUE)
 Pos = subset(data, Activity == 'active')
 Neg = subset(data, Activity == 'inactive')
 
@@ -21,21 +22,14 @@ nPos = nrow(Pos)
 nNeg = nrow(Neg)
 
 m= 100
-ACCftr  <- matrix(nrow = m, ncol = 1)
-SENSftr  <- matrix(nrow = m, ncol = 1)
-SPECftr  <- matrix(nrow = m, ncol = 1)
-MCCftr  <- matrix(nrow = m, ncol = 1)
-
-ACC10fold  <- matrix(nrow = m, ncol = 1)
-SENS10fold  <- matrix(nrow = m, ncol = 1)
-SPEC10fold  <- matrix(nrow = m, ncol = 1)
-MCC10fold  <- matrix(nrow = m, ncol = 1)
-
-ACCLOOCV  <- matrix(nrow = m, ncol = 1)
-SENSLOOCV <- matrix(nrow = m, ncol = 1)
-SPECLOOCV  <- matrix(nrow = m, ncol = 1)
-MCCLOOCV  <- matrix(nrow = m, ncol = 1)
-
+ACCtr  <- matrix(nrow = m, ncol = 1)
+SENStr  <- matrix(nrow = m, ncol = 1)
+SPECtr  <- matrix(nrow = m, ncol = 1)
+MCCtr  <- matrix(nrow = m, ncol = 1)
+ACC5cv  <- matrix(nrow = m, ncol = 1)
+SENS5cv  <- matrix(nrow = m, ncol = 1)
+SPEC5cv  <- matrix(nrow = m, ncol = 1)
+MCC5cv  <- matrix(nrow = m, ncol = 1)
 ACCts  <- matrix(nrow = m, ncol = 1)
 SENSts  <- matrix(nrow = m, ncol = 1)
 SPECts  <- matrix(nrow = m, ncol = 1)
@@ -43,99 +37,77 @@ MCCts  <- matrix(nrow = m, ncol = 1)
 error  <- matrix(nrow = 10, ncol = 1)
 
 for (i in 1:m){
-#######  Dividing Training and Testing sets on positive and negative classes
-sample <- c(sample(1:nrow(Neg) ,32))
-BNeg <- Neg[sample,]
-nBNeg = nrow(BNeg)
-sample1 <- c(sample(1:nPos,24))
-sample2 <- c(sample(1:nBNeg,24 ))
+  #######  Dividing Training and Testing sets on positive and negative classes
+  sample <- c(sample(1:nrow(Neg) ,32))
+  BNeg <- Neg[sample,]
+  nBNeg = nrow(BNeg)
+  sample1 <- c(sample(1:nPos,24))
+  sample2 <- c(sample(1:nBNeg,24 ))
   train1  <- Pos[sample1,] ####Positive set for training
   train2  <- BNeg[sample2,] ####Negative set for training
   test1 <-   Pos[-sample1,]    ####Positive set for testing
   test2 <-   BNeg[-sample2,]    ####Negative set for testing 
   internal <- rbind(train1,train2) ####combining for internal set
   external <- rbind(test1,test2)    ####combining for external set
-
-######### Optimized parameter
-model <- tuneRF(internal[,-ncol(internal)], internal[,ncol(internal)], stepFactor=1.5)
-index <- c(100,200,300,400,500,600,700,800,900,1000)
-for(p in 1:length(index)){
-ntree <- randomForest(Activity ~ ., internal, ntree= index[p],mtry = model[order(model[,2]),][1],orm.votes=TRUE,keep.forest=TRUE, importance=TRUE)
-error[p,] <- sum(ntree $ confusion[,3])
+  
+  
+  ######### Optimized parameter
+  model <- tuneRF(internal[,-ncol(internal)], internal[,ncol(internal)], stepFactor=1.5)
+  index <- c(100,200,300,400,500,600,700,800,900,1000)
+  for(p in 1:length(index)){
+    ntree <- randomForest(Activity ~ ., internal, ntree= index[p],mtry = model[order(model[,2]),][1],orm.votes=TRUE,keep.forest=TRUE, importance=TRUE)
+    error[p,] <- sum(ntree $ confusion[,3])
+  }
+  ntr = cbind(c(1:10),error)
+  ntr2 = ntr[order(ntr[,2]),][1]
+  
+  ################### Internal validation
+  
+  RF = randomForest(Activity ~ ., internal, ntree= index[ntr2],mtry = model[order(model[,2]),][1],orm.votes=TRUE,keep.forest=TRUE, importance=TRUE) ## Building RF on internal with the optimized parameter
+  Resultfull = table(internal$Activity, predict(RF, internal))  ###### Prediction on external set
+  
+  ######Loop for 5-fold CV
+  k <- 5;
+  Resultcv <- 0;
+  folds <- cvsegments(nrow(internal), k);
+  
+  for (fold in 1:k){
+    currentFold <- folds[fold][[1]];
+    RF = randomForest(Activity ~ ., internal[-currentFold,], ntree= index[ntr2] ,mtry = model[order(model[,2]),][1],orm.votes=TRUE,keep.forest=TRUE, importance=TRUE) ## Building RF model
+    pred = predict(RF, internal[currentFold,])
+    Result5cv <- Resultcv + table(true=internal[currentFold,]$Activity, pred=pred);   
+  }
+  
+  ################### External validation
+  RF = randomForest(Activity ~ ., internal, ntree= index[ntr2],mtry = model[order(model[,2]),][1],orm.votes=TRUE,keep.forest=TRUE, importance=TRUE) ## Building RF on internal with the optimized parameter
+  Resultext = table(external$Activity, predict(RF, external))  ###### Prediction on external set
+  
+  
+  ################### Performance report
+  data = Resultfull
+  ACCtr[i,] = (data[1]+data[4])/(data[1]+data[2]+data[3]+data[4])*100
+  SENStr[i,]  =  (data[1]/(data[1]+data[2]))*100
+  SPECtr[i,] = (data[4])/(data[3]+data[4])*100
+  MCC1      = (data[1]*data[4]) - (data[2]*data[3])
+  MCC2      =  (data[4]+data[2])*(data[4]+data[3])*(data[1]+data[2])*(data[1]+data[3])	
+  MCC3	=  sqrt(MCC2)
+  MCCtr[i,]  = MCC1/MCC3
+  data = Result5cv
+  ACC5cv[i,] = (data[1]+data[4])/(data[1]+data[2]+data[3]+data[4])*100
+  SENS5cv[i,]  =  (data[1]/(data[1]+data[2]))*100
+  SPEC5cv[i,] = (data[4])/(data[3]+data[4])*100
+  MCC1      = (data[1]*data[4]) - (data[2]*data[3])
+  MCC2      =  (data[4]+data[2])*(data[4]+data[3])*(data[1]+data[2])*(data[1]+data[3])	
+  MCC3	=  sqrt(MCC2)
+  MCC5cv[i,]  = MCC1/MCC3
+  data = Resultext
+  ACCts[i,] = (data[1]+data[4])/(data[1]+data[2]+data[3]+data[4])*100
+  SENSts[i,]  =  (data[1]/(data[1]+data[2]))*100
+  SPECts[i,] = (data[4])/(data[3]+data[4])*100
+  MCC1      = (data[1]*data[4]) - (data[2]*data[3])
+  MCC2      =  (data[4]+data[2])*(data[4]+data[3])*(data[1]+data[2])*(data[1]+data[3])	
+  MCC3	=  sqrt(MCC2)
+  MCCts[i,]  = MCC1/MCC3
 }
-ntr = cbind(c(1:10),error)
-ntr2 = ntr[order(ntr[,2]),][1]
-
-######full-train
-RF = randomForest(Activity ~ ., internal, ntree= index[ntr2],mtry = model[order(model[,2]),][1],orm.votes=TRUE,keep.forest=TRUE, importance=TRUE) ## Building RF on internal with the optimized parameter
-Resultfull = table(internal$Activity, predict(RF, internal))  ###### Prediction on external set
-
-######Loop for 10-fold CV Leave one out
-k <- 10;
-Resultcv <- 0;
-folds <- cvsegments(nrow(internal), k);
-
-for (fold in 1:k){
-  currentFold <- folds[fold][[1]];
-  RF = randomForest(Activity ~ ., internal[-currentFold,], ntree= index[ntr2] ,mtry = model[order(model[,2]),][1],orm.votes=TRUE,keep.forest=TRUE, importance=TRUE) ## Building RF model
-  pred = predict(RF, internal[currentFold,])
-  Resultcv <- Resultcv + table(true=internal[currentFold,]$Activity, pred=pred); 
-}
-
-######Leave one out
-k <- 48;
-Resultloocv <- 0;
-folds <- cvsegments(nrow(internal), k);
-
-for (fold in 1:k){
-  currentFold <- folds[fold][[1]];
-  RF = randomForest(Activity ~ ., internal[-currentFold,], ntree= index[ntr2] ,mtry = model[order(model[,2]),][1],orm.votes=TRUE,keep.forest=TRUE, importance=TRUE) ## Building RF model
-  pred = predict(RF, internal[currentFold,])
-  Resultloocv <- Resultloocv + table(true=internal[currentFold,]$Activity, pred=pred);   
-}
-
-################### External validation
-RF = randomForest(Activity ~ ., internal, ntree= index[ntr2],mtry = model[order(model[,2]),][1],orm.votes=TRUE,keep.forest=TRUE, importance=TRUE) ## Building RF on internal with the optimized parameter
-Resultext = table(external$Activity, predict(RF, external))  ###### Prediction on external set
-
-################### Performance report
-data = Resultfull
-	ACCftr[i,] = (data[1]+data[4])/(data[1]+data[2]+data[3]+data[4])*100
-	SENSftr[i,]  =  (data[1]/(data[1]+data[2]))*100
-	SPECftr[i,] = (data[4])/(data[3]+data[4])*100
-	MCC1      = (data[1]*data[4]) - (data[2]*data[3])
-	MCC2      =  (data[4]+data[2])*(data[4]+data[3])
-	MCC3      =  (data[1]+data[2])*(data[1]+data[3])
-	MCC4	=  sqrt(MCC2)*sqrt(MCC3)
-	MCCftr[i,]  = MCC1/MCC4
-data = Resultcv
-	ACC10fold[i,] = (data[1]+data[4])/(data[1]+data[2]+data[3]+data[4])*100
-	SENS10fold[i,]  =  (data[1]/(data[1]+data[2]))*100
-	SPEC10fold[i,] = (data[4])/(data[3]+data[4])*100
-	MCC1      = (data[1]*data[4]) - (data[2]*data[3])
-	MCC2      =  (data[4]+data[2])*(data[4]+data[3])
-	MCC3      =  (data[1]+data[2])*(data[1]+data[3])
-	MCC4	=  sqrt(MCC2)*sqrt(MCC3)
-	MCC10fold[i,]  = MCC1/MCC4
-data = Resultloocv
-	ACCLOOCV[i,] = (data[1]+data[4])/(data[1]+data[2]+data[3]+data[4])*100
-	SENSLOOCV[i,]  =  (data[1]/(data[1]+data[2]))*100
-	SPECLOOCV[i,] = (data[4])/(data[3]+data[4])*100
-	MCC1      = (data[1]*data[4]) - (data[2]*data[3])
-	MCC2      =  (data[4]+data[2])*(data[4]+data[3])
-	MCC3      =  (data[1]+data[2])*(data[1]+data[3])
-	MCC4	=  sqrt(MCC2)*sqrt(MCC3)
-	MCCLOOCV[i,]  = MCC1/MCC4
-data = Resultext
-	ACCts[i,] = (data[1]+data[4])/(data[1]+data[2]+data[3]+data[4])*100
-	SENSts[i,]  =  (data[1]/(data[1]+data[2]))*100
-	SPECts[i,] = (data[4])/(data[3]+data[4])*100
-	MCC1      = (data[1]*data[4]) - (data[2]*data[3])
-	MCC2      =  (data[4]+data[2])*(data[4]+data[3])
-	MCC3      =  (data[1]+data[2])*(data[1]+data[3])
-	MCC4	=  sqrt(MCC2)*sqrt(MCC3)
-	MCCts[i,]  = MCC1/MCC4
-}
-result = data.frame(ACCftr,SENSftr,SPECftr,MCCftr,ACC10fold,SENS10fold,SPEC10fold,MCC10fold,ACCLOOCV,SENSLOOCV,SPECLOOCV,MCCLOOCV,ACCts,SENSts,SPECts,MCCts)
-
-write.csv(result, "RF-results-all.csv", row.names=TRUE, na="")
+result = data.frame(ACCtr,SENStr,SPECtr,MCCtr,ACC5cv,SENS5cv,SPEC5cv,MCC5cv,ACCts,SENSts,SPECts,MCCts)
+write.csv(result, "RF_SubstructureFingerprinter.csv", row.names=TRUE, na="")
